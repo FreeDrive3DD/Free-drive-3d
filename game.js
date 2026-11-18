@@ -161,7 +161,7 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
-
+const G = 16; // gravity (m/s²). Lower = floatier, higher = heavier
 // ---------- Car physics ----------
 const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, steer: 0, pitch: 0, roll: 0, y: 0 };
 function resetCar() {

@@ -1,63 +1,43 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>MAZE OPS - FPS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hill Drive</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="game"></div>
+  <div id="loading">BUILDING YOUR WORLD...</div>
 
   <div id="hud">
-    <div class="hud-box">❤️ HEALTH: <span id="health">100</span></div>
-    <div class="hud-box">☠️ LEVEL: <span id="level">1 / 5</span></div>
-    <div class="hud-box">🔫 AMMO: <span id="ammo">35 / 35</span></div>
+    <div class="brand">HILL<span>DRIVE</span></div>
+    <div class="speed-box">
+      <div class="speed-line">
+        <span id="speed">0</span>
+        <small>MPH</small>
+      </div>
+      <div class="limit">SPEED LIMIT <b>250 MPH</b></div>
+    </div>
+    <div id="hint">WASD / ARROWS TO DRIVE</div>
   </div>
 
-  <div id="message">DEACTIVATE THE BOTS. FIND THE KEY. ESCAPE.</div>
-  <div id="crosshair">+</div>
-  <div id="hitMarker">✕</div>
-  <div id="reloadText">RELOADING...</div>
-  <div id="dashText">DASH READY</div>
-
-  <div id="controls">
-    <div id="joystick"><div id="stick"></div></div>
-
-    <div id="lookArea"></div>
-
-    <div id="actionButtons">
-      <button id="fire" class="control-button fire-button">FIRE</button>
-      <button id="reload" class="control-button">RELOAD</button>
-      <button id="dash" class="control-button">DASH</button>
+  <div id="touch-controls">
+    <div class="steering">
+      <button id="left">◀</button>
+      <button id="right">▶</button>
+    </div>
+    <div class="pedals">
+      <button id="brake" class="brake">BRAKE</button>
+      <button id="accelerate" class="accelerate">GO</button>
     </div>
   </div>
 
-  <div id="startScreen" class="overlay">
-    <div class="panel">
-      <h1>MAZE OPS</h1>
-      <p>Five dangerous maze levels. Find the key and escape.</p>
-      <p>Destroy every robot before unlocking the exit.</p>
-      <button id="startButton">START GAME</button>
-    </div>
+  <div id="help">
+    W / ↑ Accelerate | S / ↓ Brake |
+    A / D Steer | Space Handbrake
   </div>
 
-  <div id="endScreen" class="overlay hidden">
-    <div class="panel">
-      <h1 id="endTitle">LEVEL COMPLETE!</h1>
-      <p id="endText">You escaped the maze.</p>
-      <button id="nextButton">NEXT LEVEL</button>
-    </div>
-  </div>
-
-  <div id="gameOver" class="overlay hidden">
-    <div class="panel">
-      <h1>MISSION FAILED</h1>
-      <p>Your health reached zero.</p>
-      <button id="restartButton">TRY AGAIN</button>
-    </div>
-  </div>
-
-  <script type="module" src="script.js"></script>
+  <script type="module" src="game.js"></script>
 </body>
 </html>

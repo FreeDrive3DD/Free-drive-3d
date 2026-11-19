@@ -251,6 +251,100 @@ biomeEl.style.cssText = 'position:absolute;left:24px;top:24px;padding:8px 14px;b
 document.getElementById('hud').appendChild(biomeEl);
 let biomeName = '';
 
+// ---------- Map: minimap at the bottom, press M for the big map ----------
+// North (up on the map) is the way you face at the start; east is to the right.
+const OFF_N = 192, OFF_CELL = 100, OFF_R = OFF_N * OFF_CELL / 2; // baked biome picture covers +/-9.6 km
+const offc = document.createElement('canvas'); offc.width = offc.height = OFF_N;
+const offx = offc.getContext('2d'), offImg = offx.createImageData(OFF_N, OFF_N);
+const MAP_G = [96, 168, 76], MAP_S = [236, 243, 250], MAP_L = [64, 150, 200];
+let mcx = 1e9, mcz = 1e9, bigMap = false, mapPx = 0, mapDpr = 1;
+const mapEl = document.createElement('canvas'), mctx = mapEl.getContext('2d');
+mapEl.style.cssText = 'position:absolute;border-radius:12px;border:2px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);background:#5a9e4c';
+document.getElementById('hud').appendChild(mapEl);
+const hintEl = document.getElementById('hint');
+if (hintEl) { // move the key hints to the top right and add the map key
+  hintEl.innerHTML = 'C camera &nbsp; R reset &nbsp; M map &nbsp; Space handbrake';
+  hintEl.style.top = '24px'; hintEl.style.bottom = 'auto'; hintEl.style.left = 'auto'; hintEl.style.right = '24px';
+}
+function sizeMap() {
+  mapDpr = Math.min(window.devicePixelRatio || 1, 2);
+  const small = innerWidth < 600;
+  const css = bigMap ? Math.round(Math.min(innerWidth, innerHeight) * 0.82) : (innerWidth < 700 ? 130 : 200);
+  mapPx = Math.round(css * mapDpr); mapEl.width = mapEl.height = mapPx;
+  mapEl.style.width = mapEl.style.height = css + 'px';
+  mapEl.style.left = (bigMap || !small) ? '50%' : '12px';
+  mapEl.style.top = bigMap ? '50%' : 'auto';
+  mapEl.style.bottom = bigMap ? 'auto' : (small ? '12px' : '24px');
+  mapEl.style.transform = bigMap ? 'translate(-50%,-50%)' : small ? 'none' : 'translateX(-50%)';
+  mapEl.style.opacity = bigMap ? '0.96' : '1';
+}
+sizeMap();
+function bakeMap(cx, cz) { // paints the biome colours for the area around (cx, cz)
+  mcx = cx; mcz = cz; const d = offImg.data;
+  for (let j = 0; j < OFF_N; j++) for (let i = 0; i < OFF_N; i++) {
+    const x = cx + OFF_R - (i + 0.5) * OFF_CELL, z = cz + OFF_R - (j + 0.5) * OFF_CELL;
+    biome(x, z);
+    const wS = bS, wL = bL, wG = 1 - wS - wL, k = 0.95 + 0.05 * hs(Math.floor(x / OFF_CELL), Math.floor(z / OFF_CELL)), p = (j * OFF_N + i) * 4;
+    d[p] = (MAP_G[0] * wG + MAP_S[0] * wS + MAP_L[0] * wL) * k;
+    d[p + 1] = (MAP_G[1] * wG + MAP_S[1] * wS + MAP_L[1] * wL) * k;
+    d[p + 2] = (MAP_G[2] * wG + MAP_S[2] * wS + MAP_L[2] * wL) * k;
+    d[p + 3] = 255;
+  }
+  offx.putImageData(offImg, 0, 0);
+}
+const MAP_FONT = '"Bahnschrift", "Segoe UI", system-ui, sans-serif';
+function drawMap() {
+  const W = mapPx, R = bigMap ? 9000 : 3300, sc = W / (2 * R), u = mapDpr, g = mctx;
+  if (Math.hypot(car.x - mcx, car.z - mcz) > 500)
+    bakeMap(Math.round(car.x / OFF_CELL) * OFF_CELL, Math.round(car.z / OFF_CELL) * OFF_CELL);
+  const X = x => W / 2 - (x - car.x) * sc, Z = z => W / 2 - (z - car.z) * sc; // +z is up, -x is right
+
+  g.clearRect(0, 0, W, W);
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  const sw = 2 * R / OFF_CELL;
+  g.drawImage(offc, (mcx + OFF_R - car.x - R) / OFF_CELL, (mcz + OFF_R - car.z - R) / OFF_CELL, sw, sw, 0, 0, W, W);
+
+  // 1 km grid
+  g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = u; g.beginPath();
+  for (let x = Math.ceil((car.x - R) / 1000) * 1000; x <= car.x + R; x += 1000) { g.moveTo(X(x), 0); g.lineTo(X(x), W); }
+  for (let z = Math.ceil((car.z - R) / 1000) * 1000; z <= car.z + R; z += 1000) { g.moveTo(0, Z(z)); g.lineTo(W, Z(z)); }
+  g.stroke();
+
+  // the road
+  const rp = new Path2D(), step = R / 120; let first = true;
+  for (let z = car.z - R; z <= car.z + R + step; z += step) {
+    const px = X(roadX(z)), py = Z(z);
+    if (first) { rp.moveTo(px, py); first = false; } else rp.lineTo(px, py);
+  }
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = 'rgba(255,255,255,.65)'; g.lineWidth = 4.5 * u; g.stroke(rp);
+  g.strokeStyle = '#2a2a30'; g.lineWidth = 2.2 * u; g.stroke(rp);
+
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3 * u; g.strokeStyle = 'rgba(0,0,0,.55)'; g.fillStyle = '#fff';
+  if (bigMap) { // name each biome band
+    const x0 = car.x + R * 0.5, C = x0 / 4000 + 0.25 * Math.sin(x0 / 1000) + 0.2;
+    g.font = `bold ${14 * u}px ${MAP_FONT}`;
+    [['Starter fields', 0.46], ['Snowy peaks', 1.5], ['Lake district', 2.46]].forEach(([name, pc]) => {
+      const k0 = Math.floor(((car.z - R) / 2200 + C - pc) / 3), k1 = Math.ceil(((car.z + R) / 2200 + C - pc) / 3);
+      for (let k = k0; k <= k1; k++) {
+        const my = Z(2200 * (pc + 3 * k - C));
+        if (my > 24 * u && my < W - 24 * u) { g.strokeText(name, X(x0), my); g.fillText(name, X(x0), my); }
+      }
+    });
+    g.font = `${12 * u}px ${MAP_FONT}`;
+    g.strokeText('Press M to close', W / 2, W - 14 * u); g.fillText('Press M to close', W / 2, W - 14 * u);
+  }
+  g.font = `bold ${(bigMap ? 14 : 11) * u}px ${MAP_FONT}`; // north marker
+  g.strokeText('N', W / 2, 13 * u); g.fillText('N', W / 2, 13 * u);
+
+  // you: an arrow pointing the way the car faces
+  g.save(); g.translate(W / 2, W / 2); g.rotate(-car.yaw);
+  const a = (bigMap ? 9 : 8) * u;
+  g.beginPath(); g.moveTo(0, -a); g.lineTo(a * 0.75, a * 0.85); g.lineTo(0, a * 0.4); g.lineTo(-a * 0.75, a * 0.85); g.closePath();
+  g.fillStyle = '#ffd34d'; g.strokeStyle = '#1a1a1a'; g.lineWidth = 1.6 * u; g.fill(); g.stroke();
+  g.restore();
+}
+
 // ---------- Input ----------
 const keys = {}; let started = false, camMode = 0;
 addEventListener('keydown', e => {
@@ -258,10 +352,11 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyC') camMode = (camMode + 1) % 3;
   if (e.code === 'KeyR') resetCar();
+  if (e.code === 'KeyM' && !e.repeat) { bigMap = !bigMap; sizeMap(); }
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', e => keys[e.code] = false);
-addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); sizeMap(); });
 
 // ---------- Car physics ----------
 const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false, wet: false };
@@ -419,6 +514,8 @@ function update(dt) {
 
   const mph = Math.round(Math.abs(vf) * MPH);
   speedEl.textContent = mph; fillEl.style.width = (mph / 250 * 100) + '%';
+
+  drawMap();
 }
 
 renderer.setAnimationLoop(() => {

@@ -1,21 +1,45 @@
 (() => {
 const MPH = 2.23694, MAX = 250 / MPH; // top speed capped at 250 mph (in m/s)
-const G = 16; // gravity (m/s²). Lower = floatier, higher = heavier
+const G = 16;   // gravity (m/s²). Lower = floatier, higher = heavier
+const WL = 0;   // water level
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const sm = (a, b, x) => { x = clamp((x - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
 const hs = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
+const soft = (h, floor, k) => h > floor ? h : floor + (h - floor) * k;
 
-// ---------- World shape: winding road, rolling hills ----------
+// ---------- Biomes: starter fields -> snowy peaks -> lake district, repeating ----------
+let bS = 0, bL = 0; // snow and lake weights from the most recent biome() call
+const biome = (x, z) => {
+  const s = z / 2200 + x / 4000 + 0.25 * Math.sin(x / 1000) + 0.2;
+  const p = ((s % 3) + 3) % 3;
+  bS = sm(0.85, 1.15, p) * (1 - sm(1.85, 2.15, p));
+  bL = sm(1.85, 2.15, p) * (1 - sm(2.85, 3, p));
+};
+
+// ---------- World shape ----------
 const roadX = z => Math.sin(z * 0.004) * 140 + Math.sin(z * 0.0113) * 45;
-const roadH = z => Math.sin(z * 0.0031) * 14 + Math.sin(z * 0.009) * 5 + Math.sin(z * 0.045) * 1.1; // last term = bumps
+const roadBase = z => Math.sin(z * 0.0031) * 14 + Math.sin(z * 0.009) * 5 + Math.sin(z * 0.045) * 1.1; // last term = bumps
+const roadH = z => { // in the lake district the road becomes a low causeway just above the water
+  biome(roadX(z), z);
+  return roadBase(z) * (1 - bL) + (2.4 + Math.sin(z * 0.045) * 0.25) * bL;
+};
 const hills = (x, z) =>
   Math.sin(x * 0.0057 + 1) * Math.sin(z * 0.0049) * 34 +
   Math.sin(x * 0.013 + z * 0.009) * 9 +
   Math.sin(x * 0.031) * Math.cos(z * 0.027) * 3 + 8;
 const height = (x, z) => {
   const r = roadH(z), d = Math.abs(x - roadX(z));
-  return r + (hills(x, z) - r) * sm(12, 70, d); // flat near the road, hilly away from it
+  biome(x, z); // leaves bS / bL set for this exact point
+  const wS = bS, wL = bL, wG = 1 - wS - wL;
+  const hl = hills(x, z);
+  const grassH = soft(hl, 3, 0.1);                                                    // rolling green hills
+  const snowH = soft(hl * 1.5 + 14 + Math.abs(Math.sin(x * 0.011) * Math.sin(z * 0.013)) * 30, 4, 0.1); // taller mountains
+  const n = Math.sin(x * 0.021 + 1) * Math.sin(z * 0.019) + Math.sin(x * 0.047) * Math.sin(z * 0.041) * 0.6 + Math.sin(x * 0.09 + z * 0.07) * 0.3;
+  const lakeH = -7 + sm(0.3, 0.55, n) * (8 + 2 * n);                                  // deep basin with lots of small islands
+  const t = grassH * wG + snowH * wS + lakeH * wL;
+  return r + (t - r) * sm(12, 70, d); // flat near the road, natural terrain away from it
 };
+const groundAt = (x, z) => Math.max(height(x, z), WL); // what the car's body "sees" (water counts as ground)
 
 // ---------- Renderer, scene, sky ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -23,14 +47,15 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 document.getElementById('game').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xcfe6f2, 250, 1100);
+const horizon = new THREE.Color(0xdceff7);
+scene.fog = new THREE.Fog(0xdceff7, 250, 1100);
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.5, 2600);
 
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1900, 24, 16),
   new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
 {
-  const p = sky.geometry.attributes.position, cols = [], top = new THREE.Color(0x3f8fe0), hor = new THREE.Color(0xdceff7), c = new THREE.Color();
-  for (let i = 0; i < p.count; i++) { c.copy(hor).lerp(top, clamp(p.getY(i) / 1500, 0, 1)); cols.push(c.r, c.g, c.b); }
+  const p = sky.geometry.attributes.position, cols = [], top = new THREE.Color(0x3f8fe0), c = new THREE.Color();
+  for (let i = 0; i < p.count; i++) { c.copy(horizon).lerp(top, clamp(p.getY(i) / 1500, 0, 1)); cols.push(c.r, c.g, c.b); }
   sky.geometry.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
 }
 scene.add(sky);
@@ -63,18 +88,40 @@ const lx = new Float32Array(tp.count), lz = new Float32Array(tp.count);
 for (let i = 0; i < tp.count; i++) { lx[i] = tp.getX(i); lz[i] = tp.getZ(i); }
 const terrain = new THREE.Mesh(tg, new THREE.MeshLambertMaterial({ vertexColors: true }));
 terrain.frustumCulled = false; scene.add(terrain);
-const col = new THREE.Color(), rock = new THREE.Color(0x8a8a80);
+const col = new THREE.Color(), cg = new THREE.Color(), cs = new THREE.Color(), cl = new THREE.Color();
+const rock = new THREE.Color(0x8a8a80), mud = new THREE.Color(0.55, 0.62, 0.58), peak = new THREE.Color(0x77777a);
+const sand = new THREE.Color(0.86, 0.8, 0.58), isl = new THREE.Color(0.2, 0.48, 0.16);
 function buildTerrain(cx, cz) {
   terrain.position.set(cx, 0, cz);
   for (let i = 0; i < tp.count; i++) {
-    const x = cx + lx[i], z = cz + lz[i], h = height(x, z);
+    const x = cx + lx[i], z = cz + lz[i], h = height(x, z), wS = bS, wL = bL, wG = 1 - wS - wL;
     const n = hs(Math.round(x / CELL), Math.round(z / CELL)), meadow = sm(-5, 22, h);
-    col.setRGB(0.13 + 0.07 * n + 0.12 * meadow, 0.36 + 0.14 * n + 0.1 * meadow, 0.1 + 0.05 * n);
-    col.lerp(rock, sm(30, 48, h + n * 6));
+    cg.setRGB(0.13 + 0.07 * n + 0.12 * meadow, 0.36 + 0.14 * n + 0.1 * meadow, 0.1 + 0.05 * n).lerp(rock, sm(30, 48, h + n * 6));
+    const k = 0.92 + 0.08 * n;
+    cs.setRGB(0.93 * k, 0.96 * k, k).lerp(mud, 1 - sm(2, 9, h)).lerp(peak, sm(55, 75, h + n * 8));
+    cl.setRGB(0.1, 0.3, 0.36).lerp(sand, sm(-0.5, 0.1, h)).lerp(isl, sm(1, 2.2, h));
+    col.setRGB(cg.r * wG + cs.r * wS + cl.r * wL, cg.g * wG + cs.g * wS + cl.g * wL, cg.b * wG + cs.b * wS + cl.b * wL);
     tp.setY(i, h); tcol[i * 3] = col.r; tcol[i * 3 + 1] = col.g; tcol[i * 3 + 2] = col.b;
   }
   tp.needsUpdate = true; tg.attributes.color.needsUpdate = true; tg.computeVertexNormals();
 }
+
+// ---------- Water ----------
+const wcv = document.createElement('canvas'); wcv.width = wcv.height = 128;
+{
+  const g = wcv.getContext('2d');
+  g.fillStyle = '#3a86b8'; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 160; i++) {
+    g.strokeStyle = `rgba(255,255,255,${0.05 + Math.random() * 0.12})`; g.lineWidth = 1 + Math.random() * 1.5;
+    const x = Math.random() * 128, y = Math.random() * 128, w = 6 + Math.random() * 16;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + w / 2, y - 3, x + w, y); g.stroke();
+  }
+}
+const wtex = new THREE.CanvasTexture(wcv);
+wtex.wrapS = wtex.wrapT = THREE.RepeatWrapping; wtex.repeat.set(85, 85); // 40 m per tile
+const water = new THREE.Mesh(new THREE.PlaneGeometry(3400, 3400).rotateX(-Math.PI / 2),
+  new THREE.MeshPhongMaterial({ map: wtex, transparent: true, opacity: 0.8, shininess: 90, specular: 0x99bbdd, depthWrite: false }));
+water.frustumCulled = false; scene.add(water);
 
 // ---------- Road ribbon with painted texture ----------
 const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
@@ -104,7 +151,7 @@ function buildRoad(cz) {
   rg.attributes.position.needsUpdate = true; rg.attributes.uv.needsUpdate = true; rg.computeVertexNormals();
 }
 
-// ---------- Trees ----------
+// ---------- Trees (green, snow-covered, or sparse island trees) ----------
 const TC = 30, TR = 22, MAXT = (2 * TR + 1) ** 2;
 const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.5, 3, 6), new THREE.MeshLambertMaterial({ color: 0x5b3d24 }), MAXT);
 const crown = new THREE.InstancedMesh(new THREE.ConeGeometry(2.6, 7, 7), new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXT);
@@ -117,17 +164,27 @@ function buildTrees(cx, cz) {
     if (r < 0.35) continue;
     const x = gx * TC + (hs(gz, gx) - 0.5) * TC * 0.9, z = gz * TC + (hs(gx + 7, gz + 3) - 0.5) * TC * 0.9;
     if (Math.abs(x - roadX(z)) < 20) continue;
-    const h = height(x, z); if (h > 38) continue;
-    const s = 0.8 + hs(gx + 1, gz + 9) * 1.1;
+    const h = height(x, z), wS = bS, wL = bL;
+    if (h < WL + 0.9 || h > 40 + wS * 20) continue;
+    if (wL > 0.5 && r < 0.75) continue; // fewer trees on the islands
+    const s = 0.8 + hs(gx + 1, gz + 9) * 1.1 + wS * 0.3;
     dummy.rotation.y = r * 6; dummy.scale.setScalar(s);
     dummy.position.set(x, h + 1.5 * s, z); dummy.updateMatrix(); trunk.setMatrixAt(n, dummy.matrix);
     dummy.position.y = h + 6 * s; dummy.updateMatrix(); crown.setMatrixAt(n, dummy.matrix);
-    crown.setColorAt(n, tc.setHSL(0.25 + 0.08 * hs(gz, gx + 5), 0.55, 0.16 + 0.1 * r)); n++;
+    crown.setColorAt(n, tc.setHSL(0.25 + 0.08 * hs(gz, gx + 5), 0.55 * (1 - wS) + 0.1 * wS, 0.16 + 0.1 * r + wS * 0.6)); n++;
   }
   trunk.count = crown.count = n;
   trunk.instanceMatrix.needsUpdate = crown.instanceMatrix.needsUpdate = true;
   if (crown.instanceColor) crown.instanceColor.needsUpdate = true;
 }
+
+// ---------- Falling snow ----------
+const SN = 900, SR = 70, snowPos = new Float32Array(SN * 3);
+for (let i = 0; i < SN; i++) { snowPos[i * 3] = (Math.random() * 2 - 1) * SR; snowPos[i * 3 + 1] = Math.random() * 40; snowPos[i * 3 + 2] = (Math.random() * 2 - 1) * SR; }
+const snowGeo = new THREE.BufferGeometry(); snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0, depthWrite: false }));
+snow.frustumCulled = false; snow.visible = false; scene.add(snow);
+const wrap = (v, c, R) => ((v - c + R) % (2 * R) + 2 * R) % (2 * R) - R + c;
 
 // ---------- Car model ----------
 const car3d = new THREE.Group(), body = new THREE.Group(); car3d.add(body);
@@ -149,7 +206,30 @@ const wheels = [];
   const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 14), new THREE.MeshLambertMaterial({ color: 0x151515 }));
   w.rotation.z = Math.PI / 2; pivot.add(w); body.add(pivot); wheels.push({ pivot, w, front: z > 0 });
 });
+
+// Buoys: two pontoons on arms that grow out of the car when it hits water
+const buoys = new THREE.Group(); body.add(buoys);
+{
+  const orange = new THREE.MeshLambertMaterial({ color: 0xff7a1a }), white = new THREE.MeshLambertMaterial({ color: 0xf4f4f4 });
+  [-1, 1].forEach(s => {
+    const pont = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 3.2, 12), orange);
+    pont.rotation.x = Math.PI / 2; pont.position.set(s * 2.0, 0.08, 0); buoys.add(pont);
+    [1.6, -1.6].forEach(z => { const cap = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), orange); cap.position.set(s * 2.0, 0.08, z); buoys.add(cap); });
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.315, 0.315, 0.5, 12), white);
+    band.rotation.x = Math.PI / 2; band.position.set(s * 2.0, 0.08, 0.6); buoys.add(band);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.09, 0.14), new THREE.MeshLambertMaterial({ color: 0x2a2a2a }));
+    arm.position.set(s * 1.45, 0.45, 0.6); buoys.add(arm);
+    const arm2 = arm.clone(); arm2.position.z = -0.9; buoys.add(arm2);
+  });
+}
+buoys.scale.setScalar(0.001); buoys.visible = false;
 scene.add(car3d);
+
+// ---------- HUD: biome label (built here so index.html stays unchanged) ----------
+const biomeEl = document.createElement('div');
+biomeEl.style.cssText = 'position:absolute;left:24px;top:24px;padding:8px 14px;border-radius:10px;font-size:15px;background:rgba(18,32,22,.55);backdrop-filter:blur(6px)';
+document.getElementById('hud').appendChild(biomeEl);
+let biomeName = '';
 
 // ---------- Input ----------
 const keys = {}; let started = false, camMode = 0;
@@ -164,19 +244,23 @@ addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
 // ---------- Car physics ----------
-const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false };
+const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false, wet: false };
 function resetCar() {
   car.x = roadX(car.z); car.yaw = Math.atan2(roadX(car.z + 1) - car.x, 1);
-  car.vx = car.vz = car.vy = 0; car.steer = 0; car.air = false;
-  car.y = height(car.x, car.z) + 0.05;
+  car.vx = car.vz = car.vy = 0; car.steer = 0; car.air = false; car.wet = false;
+  car.y = Math.max(height(car.x, car.z) + 0.05, WL + 0.22);
 }
 resetCar();
 
-let lastCx = 1e9, lastCz = 1e9, camYaw = 0, camPos = new THREE.Vector3(0, 10, -15), wheelRot = 0;
+let lastCx = 1e9, lastCz = 1e9, camYaw = 0, camPos = new THREE.Vector3(0, 10, -15), wheelRot = 0, time = 0, buoyG = 0;
 const speedEl = document.getElementById('speed'), fillEl = document.getElementById('fill');
+const tint = new THREE.Color(), tintSnow = new THREE.Color(0.82, 0.86, 0.95), tintLake = new THREE.Color(0.88, 0.98, 1);
 const clock = new THREE.Clock();
 
 function update(dt) {
+  time += dt;
+  biome(car.x, car.z); const cS = bS, cL = bL; // biome weights at the car
+
   const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw), rx = fz, rz = -fx;
   let vf = car.vx * fx + car.vz * fz, vl = car.vx * rx + car.vz * rz;
   const gas = keys.KeyW || keys.ArrowUp, brake = keys.KeyS || keys.ArrowDown, hb = keys.Space;
@@ -184,16 +268,20 @@ function update(dt) {
   const offRoad = Math.abs(car.x - roadX(car.z)) > HW + 0.5;
 
   if (!car.air) {
-    // wheels on the ground: engine, brakes, grip
-    if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(Math.max(vf, 0) / MAX, 3))) * dt;
+    const eng = car.wet ? 0.85 : 1; // a bit less engine power on water
+    if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(Math.max(vf, 0) / MAX, 3))) * eng * dt;
     if (brake) vf -= (vf > 1 ? 45 : 14) * dt;
     if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 30 * dt);
     vf -= vf * 0.012 * dt + Math.sign(vf) * 0.6 * dt;
-    if (offRoad) vf *= Math.exp(-0.4 * dt);
-    vl *= Math.exp(-(hb ? 1.5 : 7) * dt);
+    if (car.wet) {
+      vf -= vf * Math.abs(vf) * 0.004 * dt;     // water drag: top speed on water is ~210 mph
+      vl *= Math.exp(-3 * dt);                  // slidey, boat-like handling
+    } else {
+      if (offRoad) vf *= Math.exp(-(0.4 + 0.3 * cS) * dt); // grass and deep snow slow you down
+      vl *= Math.exp(-(hb ? 1.5 : 7 - 3 * cS) * dt);       // less grip in the snow
+    }
   } else {
-    // in the air: no engine, no grip, almost no drag
-    vf -= vf * 0.004 * dt;
+    vf -= vf * 0.004 * dt;          // in the air: no engine, no grip, almost no drag
     vl *= Math.exp(-0.4 * dt);
   }
   vf = clamp(vf, -14, MAX); // 250 mph speed limit
@@ -206,16 +294,16 @@ function update(dt) {
   car.vx = nfx * vf + nfz * vl; car.vz = nfz * vf - nfx * vl;
   car.x += car.vx * dt; car.z += car.vz * dt;
 
-  // ---- vertical physics ----
-  const gY = height(car.x, car.z) + 0.05;
+  // ---- vertical physics (water surface counts as ground) ----
+  const terr = height(car.x, car.z), wetNow = terr < WL - 0.05;
+  const bob = wetNow ? Math.sin(time * 2.2 + car.x * 0.04) * 0.06 : 0;
+  const gY = Math.max(terr + 0.05, WL + 0.22 + bob);
   if (!car.air) {
-    // if the ground drops away faster than gravity pulls us down, we take off
     const yFree = car.y + car.vy * dt - 0.5 * G * dt * dt;
-    if (yFree > gY + 0.001) {
-      car.air = true;
-      car.vy -= G * dt; car.y += car.vy * dt;
+    if (yFree > gY + 0.001) { // ground dropped away faster than gravity: take off
+      car.air = true; car.vy -= G * dt; car.y += car.vy * dt;
     } else {
-      car.vy = clamp((gY - car.y) / dt, -80, 80); // inherit the slope's vertical speed
+      car.vy = clamp((gY - car.y) / dt, -80, 80);
       car.y = gY;
     }
   } else {
@@ -223,24 +311,33 @@ function update(dt) {
     car.y += car.vy * dt;
     if (car.y <= gY) { // landing
       const hit = -car.vy;
-      vf *= 1 - clamp((hit - 10) / 100, 0, 0.25); // hard landings scrub speed
+      vf *= 1 - clamp((hit - 10) / 100, 0, 0.25) * (wetNow ? 0.4 : 1); // water is softer than ground
       car.vx = nfx * vf + nfz * vl; car.vz = nfz * vf - nfx * vl;
       car.y = gY; car.vy = 0; car.air = false;
     }
   }
+  car.wet = wetNow;
 
-  // ---- tilt: follow the slope on the ground, follow the flight path in the air ----
-  const hF = height(car.x + nfx * 2, car.z + nfz * 2), hB = height(car.x - nfx * 2, car.z - nfz * 2);
-  const hR = height(car.x + nfz * 1.5, car.z - nfx * 1.5), hL = height(car.x - nfz * 1.5, car.z + nfx * 1.5);
+  // ---- tilt: follow the slope on land, bob gently on water, follow the flight path in the air ----
+  const hF = groundAt(car.x + nfx * 2, car.z + nfz * 2), hB = groundAt(car.x - nfx * 2, car.z - nfz * 2);
+  const hR = groundAt(car.x + nfz * 1.5, car.z - nfx * 1.5), hL = groundAt(car.x - nfz * 1.5, car.z + nfx * 1.5);
   let targetPitch, targetRoll, rate;
   if (car.air) { targetPitch = -Math.atan2(car.vy, Math.max(Math.abs(vf), 8)); targetRoll = 0; rate = 3; }
-  else { targetPitch = Math.atan2(hB - hF, 4); targetRoll = Math.atan2(hR - hL, 3); rate = 10; }
+  else {
+    targetPitch = Math.atan2(hB - hF, 4) + (car.wet ? Math.sin(time * 1.3) * 0.025 : 0);
+    targetRoll = Math.atan2(hR - hL, 3) + (car.wet ? Math.sin(time * 1.7 + 1) * 0.03 : 0);
+    rate = 10;
+  }
   car.pitch += (targetPitch - car.pitch) * Math.min(1, rate * dt);
   car.roll += (targetRoll - car.roll) * Math.min(1, rate * dt);
 
   car3d.position.set(car.x, car.y, car.z);
   car3d.rotation.set(car.pitch, car.yaw, car.roll, 'YXZ');
   body.rotation.z = -car.steer * Math.min(1, vf / MAX) * 0.06;
+
+  // buoys grow out when over water, shrink back on land
+  buoyG += ((car.wet ? 1 : 0) - buoyG) * Math.min(1, 4 * dt);
+  buoys.scale.setScalar(Math.max(buoyG, 0.001)); buoys.visible = buoyG > 0.02;
 
   wheelRot += vf * dt / 0.38;
   wheels.forEach(o => { o.w.rotation.x = wheelRot; if (o.front) o.pivot.rotation.y = car.steer * 0.4; });
@@ -251,6 +348,28 @@ function update(dt) {
     buildTerrain(Math.round(car.x / CELL) * CELL, Math.round(car.z / CELL) * CELL);
     buildRoad(car.z); buildTrees(car.x, car.z);
   }
+  water.position.set(Math.round(car.x / 40) * 40, WL, Math.round(car.z / 40) * 40);
+  wtex.offset.set(time * 0.012, time * 0.007);
+
+  // snow falls in the snowy biome
+  snow.visible = cS > 0.05; snow.material.opacity = cS * 0.9;
+  if (snow.visible) {
+    for (let i = 0; i < SN; i++) {
+      const i3 = i * 3;
+      let x = snowPos[i3] + 1.5 * dt, y = snowPos[i3 + 1] - 7 * dt, z = snowPos[i3 + 2];
+      snowPos[i3] = wrap(x, car.x, SR); snowPos[i3 + 2] = wrap(z, car.z, SR);
+      snowPos[i3 + 1] = ((y - car.y + 8) % 44 + 44) % 44 - 8 + car.y;
+    }
+    snowGeo.attributes.position.needsUpdate = true;
+  }
+
+  // sky and fog take on the biome's mood
+  tint.set(0xffffff).lerp(tintSnow, cS).lerp(tintLake, cL);
+  sky.material.color.copy(tint); scene.fog.color.copy(horizon).multiply(tint);
+  scene.fog.near = 250 - 120 * cS; scene.fog.far = 1100 - 400 * cS;
+
+  const name = cL > 0.5 ? 'Lake district' : cS > 0.5 ? 'Snowy peaks' : 'Starter fields';
+  if (name !== biomeName) { biomeName = name; biomeEl.textContent = name; }
 
   // camera
   camYaw += Math.atan2(Math.sin(car.yaw - camYaw), Math.cos(car.yaw - camYaw)) * Math.min(1, 4 * dt);
@@ -263,7 +382,7 @@ function update(dt) {
     const dist = camMode === 0 ? 11 + spd * 4 : 7, hgt = camMode === 0 ? 4.2 : 2.6;
     const target = new THREE.Vector3(car.x - Math.sin(camYaw) * dist, car.y + hgt, car.z - Math.cos(camYaw) * dist);
     camPos.lerp(target, Math.min(1, 9 * dt)); camera.position.copy(camPos);
-    camera.position.y = Math.max(camera.position.y, height(camPos.x, camPos.z) + 1.5);
+    camera.position.y = Math.max(camera.position.y, groundAt(camPos.x, camPos.z) + 1.5);
     camera.lookAt(car.x + nfx * 6, car.y + 1.4, car.z + nfz * 6);
   }
   camera.fov = 62 + spd * 26; camera.updateProjectionMatrix();

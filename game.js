@@ -223,6 +223,26 @@ const buoys = new THREE.Group(); body.add(buoys);
   });
 }
 buoys.scale.setScalar(0.001); buoys.visible = false;
+
+// Wings: grow out of the car's sides when it is more than 100 ft above the ground
+let wingG = 0, wingsOut = false;
+const wings = [];
+{
+  const white = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }), red = new THREE.MeshLambertMaterial({ color: 0xd7261e });
+  [-1, 1].forEach(s => {
+    const w = new THREE.Group();
+    w.position.set(s * 0.95, 1.05, -0.2);
+    w.rotation.set(0, s * 0.3, s * 0.06); // swept back, with a slight upward angle
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.08, 1.5), white);
+    panel.position.set(s * 2.2, 0, 0); w.add(panel);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.09, 0.2), red);
+    stripe.position.set(s * 2.2, 0, 0.65); w.add(stripe);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.7), red);
+    tip.position.set(s * 4.4, 0.3, -0.2); w.add(tip);
+    w.scale.set(0.001, 0.3, 0.3); w.visible = false;
+    body.add(w); wings.push(w);
+  });
+}
 scene.add(car3d);
 
 // ---------- HUD: biome label (built here so index.html stays unchanged) ----------
@@ -338,6 +358,12 @@ function update(dt) {
   // buoys grow out when over water, shrink back on land
   buoyG += ((car.wet ? 1 : 0) - buoyG) * Math.min(1, 4 * dt);
   buoys.scale.setScalar(Math.max(buoyG, 0.001)); buoys.visible = buoyG > 0.02;
+
+  // wings grow out above 100 ft (30.48 m), and fold away below about 65 ft
+  const alt = car.y - groundAt(car.x, car.z);
+  if (alt > 30.48) wingsOut = true; else if (alt < 20) wingsOut = false;
+  wingG += ((wingsOut ? 1 : 0) - wingG) * Math.min(1, 5 * dt);
+  wings.forEach(w => { w.scale.set(Math.max(wingG, 0.001), 0.3 + 0.7 * wingG, 0.3 + 0.7 * wingG); w.visible = wingG > 0.02; });
 
   wheelRot += vf * dt / 0.38;
   wheels.forEach(o => { o.w.rotation.x = wheelRot; if (o.front) o.pivot.rotation.y = car.steer * 0.4; });

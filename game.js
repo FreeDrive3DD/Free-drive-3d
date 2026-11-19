@@ -1,5 +1,6 @@
 (() => {
-const MPH = 2.23694, MAX = 250 / MPH; // top speed capped at 250 mph (in m/s)
+const MPH = 2.23694;
+let MAXMPH = 250, MAX = MAXMPH / MPH; // top speed of the chosen car (set when you pick one)
 const G = 16;   // gravity (m/s²). Lower = floatier, higher = heavier
 const WL = 0;   // water level
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -186,7 +187,31 @@ const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xfffff
 snow.frustumCulled = false; snow.visible = false; scene.add(snow);
 const wrap = (v, c, R) => ((v - c + R) % (2 * R) + 2 * R) % (2 * R) - R + c;
 
-// ---------- Car models: three different looks, identical performance ----------
+// ---------- Tyre smoke (puffs from the rear wheels while drifting) ----------
+const SMOKE_N = 36, smoke = [];
+{
+  const geo = new THREE.SphereGeometry(0.5, 6, 5);
+  for (let i = 0; i < SMOKE_N; i++) {
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xe6e6e6, transparent: true, opacity: 0, depthWrite: false }));
+    m.visible = false; m.userData = { life: 0, max: 1 }; scene.add(m); smoke.push(m);
+  }
+}
+let smokeT = 0, smokeI = 0;
+function puff(x, y, z) {
+  const m = smoke[smokeI++ % SMOKE_N], u = m.userData;
+  m.position.set(x, y, z); u.life = u.max = 0.8 + Math.random() * 0.5; m.scale.setScalar(0.5); m.visible = true;
+}
+function updateSmoke(dt) {
+  for (const m of smoke) {
+    const u = m.userData; if (u.life <= 0) continue;
+    u.life -= dt;
+    if (u.life <= 0) { m.visible = false; continue; }
+    const k = 1 - u.life / u.max;
+    m.scale.setScalar(0.6 + k * 2.8); m.position.y += dt * 1.2; m.material.opacity = 0.45 * (1 - k);
+  }
+}
+
+// ---------- Car models: three different looks ----------
 const part = (g, w, h, d, color, x, y, z, rx = 0, em = 0, ry = 0, rz = 0) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color, emissive: em }));
   m.position.set(x, y, z); m.rotation.set(rx, ry, rz); g.add(m); return m;
@@ -292,7 +317,8 @@ function buildHyper() { // low yellow wedge supercar
   });
   return { group: g, wheels: addWheels(g, 0.37, 0.32, 1.0, 1.4, -1.35, true, 0x9aa0a8), hood: [0.97, 0.3], wingY: 0.9 };
 }
-const CARS = [{ build: buildClassic }, { build: buildSport }, { build: buildHyper }];
+// max = top speed in MPH. The yellow supercar is the only one that goes past 250.
+const CARS = [{ build: buildClassic, max: 250 }, { build: buildSport, max: 250 }, { build: buildHyper, max: 400 }];
 
 // The car you drive: a group that holds the chosen model, plus buoys and wings
 const car3d = new THREE.Group(), body = new THREE.Group(); car3d.add(body);
@@ -356,8 +382,8 @@ const mapEl = document.createElement('canvas'), mctx = mapEl.getContext('2d');
 mapEl.style.cssText = 'position:absolute;border-radius:12px;border:2px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);background:#5a9e4c';
 hudEl.appendChild(mapEl);
 const hintEl = document.getElementById('hint');
-if (hintEl) { // move the key hints to the top right and add the map key
-  hintEl.innerHTML = 'C camera &nbsp; R reset &nbsp; M map &nbsp; Space handbrake';
+if (hintEl) { // move the key hints to the top right and add the map and drift keys
+  hintEl.innerHTML = 'C camera &nbsp; R reset &nbsp; M map &nbsp; Space handbrake &nbsp; Space + A/D drift';
   hintEl.style.top = '24px'; hintEl.style.bottom = 'auto'; hintEl.style.left = 'auto'; hintEl.style.right = '24px';
 }
 function sizeMap() {
@@ -501,11 +527,14 @@ function renderPreviews(t) {
     c.ctx.clearRect(0, 0, PW, PH); c.ctx.drawImage(pr.domElement, 0, 0);
   });
 }
+const limitEl = document.getElementById('limit');
 function pickCar(i) {
   const m = CARS[i].build();
   if (model) body.remove(model.group);
   model = m; body.add(m.group); wheels = m.wheels; hood = m.hood;
   wings.forEach(w => w.position.y = m.wingY);
+  MAXMPH = CARS[i].max; MAX = MAXMPH / MPH; // this car's top speed
+  if (limitEl) limitEl.textContent = 'Limit ' + MAXMPH + ' mph';
   car3d.visible = true; pickEl.style.display = 'none'; hudEl.style.visibility = 'visible';
   if (document.activeElement) document.activeElement.blur();
   for (const k in keys) keys[k] = false;
@@ -513,10 +542,10 @@ function pickCar(i) {
 }
 
 // ---------- Car physics ----------
-const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false, wet: false };
+const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false, wet: false, drift: 0 };
 function resetCar() {
   car.x = roadX(car.z); car.yaw = Math.atan2(roadX(car.z + 1) - car.x, 1);
-  car.vx = car.vz = car.vy = 0; car.steer = 0; car.air = false; car.wet = false;
+  car.vx = car.vz = car.vy = 0; car.steer = 0; car.air = false; car.wet = false; car.drift = 0;
   car.y = Math.max(height(car.x, car.z) + 0.05, WL + 0.22);
 }
 resetCar();
@@ -524,42 +553,66 @@ resetCar();
 let lastCx = 1e9, lastCz = 1e9, camYaw = 0, camPos = new THREE.Vector3(0, 10, -15), wheelRot = 0, time = 0, buoyG = 0;
 const speedEl = document.getElementById('speed'), fillEl = document.getElementById('fill');
 const tint = new THREE.Color(), tintSnow = new THREE.Color(0.82, 0.86, 0.95), tintLake = new THREE.Color(0.88, 0.98, 1);
-const clock = new THREE.Clock();
+const clock = new THREE.Clock(), smokeV = new THREE.Vector3();
 
 function update(dt) {
   time += dt;
   biome(car.x, car.z); const cS = bS, cL = bL; // biome weights at the car
 
-  const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw), rx = fz, rz = -fx;
-  let vf = car.vx * fx + car.vz * fz, vl = car.vx * rx + car.vz * rz;
   const gas = keys.KeyW || keys.ArrowUp, brake = keys.KeyS || keys.ArrowDown, hb = keys.Space;
   const steerIn = ((keys.KeyA || keys.ArrowLeft) ? 1 : 0) - ((keys.KeyD || keys.ArrowRight) ? 1 : 0);
   const offRoad = Math.abs(car.x - roadX(car.z)) > HW + 0.5;
 
+  // ---- steering and drift state (uses the velocity from the start of the frame) ----
+  // vf = speed along the car's nose, vl = sideways speed (positive = towards the car's left)
+  const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw);
+  let vf = car.vx * fx + car.vz * fz, vl = car.vx * fz - car.vz * fx;
+  const sp0 = Math.hypot(vf, vl);
+  car.steer += (steerIn - car.steer) * Math.min(1, 7 * dt);
+
+  // drifting: handbrake + turning, at speed, on the ground (not on water)
+  const wantDrift = hb && Math.abs(car.steer) > 0.25 && sp0 > 12 && vf > 6 && !car.air && !car.wet;
+  car.drift += ((wantDrift ? 1 : 0) - car.drift) * Math.min(1, (wantDrift ? 8 : 4) * dt);
+  const dr = car.drift;
+
+  const steerBite = clamp(Math.abs(vf) / 8, 0, 1) * Math.sign(vf);
+  const authority = car.air ? 0.25 : 1;
+  const normalRate = 1.8 / (1 + sp0 * 0.04);   // ordinary turning gets weaker as you go faster
+  const driftRate = 1.7 / (1 + sp0 * 0.006);   // a drift keeps turning hard at any speed
+  let yawRate = car.steer * (normalRate * (1 - dr) + driftRate * dr);
+  // don't let the slide angle run away: turning further into a big slide gets less effective
+  if (dr > 0.01 && car.steer * vl < 0) yawRate *= 1 - dr * sm(0.5, 0.95, Math.atan2(Math.abs(vl), Math.max(vf, 1)));
+  car.yaw += yawRate * steerBite * authority * dt;
+
+  // the car has turned but its momentum hasn't: work out the new forward and sideways speeds
+  const nfx = Math.sin(car.yaw), nfz = Math.cos(car.yaw);
+  vf = car.vx * nfx + car.vz * nfz; vl = car.vx * nfz - car.vz * nfx;
+
+  // ---- engine, brakes, grip ----
   if (!car.air) {
     const eng = car.wet ? 0.85 : 1; // a bit less engine power on water
-    if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(Math.max(vf, 0) / MAX, 3))) * eng * dt;
+    const sp = Math.hypot(vf, vl);
+    if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(sp / MAX, 3))) * eng * dt;
     if (brake) vf -= (vf > 1 ? 45 : 14) * dt;
-    if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 30 * dt);
+    if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 30 * (1 - dr) * dt); // handbrake brakes, unless you're drifting
     vf -= vf * 0.012 * dt + Math.sign(vf) * 0.6 * dt;
+    vf -= vf * 0.12 * dr * dt;                                                  // drifting scrubs a little speed
     if (car.wet) {
-      vf -= vf * Math.abs(vf) * 0.004 * dt;     // water drag: top speed on water is ~210 mph
+      vf -= vf * Math.abs(vf) * 0.004 * dt;     // water drag
       vl *= Math.exp(-3 * dt);                  // slidey, boat-like handling
     } else {
-      if (offRoad) vf *= Math.exp(-(0.4 + 0.3 * cS) * dt); // grass and deep snow slow you down
-      vl *= Math.exp(-(hb ? 1.5 : 7 - 3 * cS) * dt);       // less grip in the snow
+      if (offRoad) { const k = Math.exp(-(0.4 + 0.3 * cS) * dt); vf *= k; vl *= k; } // grass and deep snow slow you down
+      const gripK = (hb ? 1.5 : 7 - 3 * cS) * (1 - dr) + 0.9 * dr;                   // tyre grip: less in snow, very little in a drift
+      vl *= Math.exp(-gripK * dt);
     }
   } else {
     vf -= vf * 0.004 * dt;          // in the air: no engine, no grip, almost no drag
     vl *= Math.exp(-0.4 * dt);
   }
-  vf = clamp(vf, -14, MAX); // 250 mph speed limit
+  const spTot = Math.hypot(vf, vl);
+  if (spTot > MAX) { const k = MAX / spTot; vf *= k; vl *= k; } // this car's speed limit
+  vf = Math.max(vf, -14);
 
-  car.steer += (steerIn - car.steer) * Math.min(1, 7 * dt);
-  const authority = car.air ? 0.25 : 1;
-  car.yaw += car.steer * clamp(Math.abs(vf) / 8, 0, 1) * Math.sign(vf) * (1.8 / (1 + Math.abs(vf) * 0.04)) * authority * dt;
-
-  const nfx = Math.sin(car.yaw), nfz = Math.cos(car.yaw);
   car.vx = nfx * vf + nfz * vl; car.vz = nfz * vf - nfx * vl;
   car.x += car.vx * dt; car.z += car.vz * dt;
 
@@ -602,7 +655,7 @@ function update(dt) {
 
   car3d.position.set(car.x, car.y, car.z);
   car3d.rotation.set(car.pitch, car.yaw, car.roll, 'YXZ');
-  body.rotation.z = -car.steer * Math.min(1, vf / MAX) * 0.06;
+  body.rotation.z = -car.steer * Math.min(1, Math.max(vf, 0) / MAX) * 0.06 - car.steer * dr * 0.05; // the body leans into a drift
 
   // buoys grow out when over water, shrink back on land
   buoyG += ((car.wet ? 1 : 0) - buoyG) * Math.min(1, 4 * dt);
@@ -617,8 +670,19 @@ function update(dt) {
   wheelRot += vf * dt / 0.38;
   wheels.forEach(o => { o.w.rotation.x = wheelRot; if (o.front) o.pivot.rotation.y = car.steer * 0.4; });
 
+  // tyre smoke from the rear wheels while drifting
+  if (phase === 'play' && dr > 0.5 && !car.air) {
+    smokeT += dt; car3d.updateMatrixWorld(true);
+    while (smokeT > 0.035) {
+      smokeT -= 0.035;
+      smokeV.set(Math.random() < 0.5 ? -1 : 1, 0.25, -1.35); car3d.localToWorld(smokeV);
+      puff(smokeV.x, smokeV.y, smokeV.z);
+    }
+  } else smokeT = 0;
+  updateSmoke(dt);
+
   // keep the world around the car
-  if (Math.hypot(car.x - lastCx, car.z - lastCz) > 30) {
+  if (Math.hypot(car.x - lastCx, car.z - lastCz) > 45) {
     lastCx = car.x; lastCz = car.z;
     buildTerrain(Math.round(car.x / CELL) * CELL, Math.round(car.z / CELL) * CELL);
     buildRoad(car.z); buildTrees(car.x, car.z);
@@ -647,16 +711,18 @@ function update(dt) {
   if (name !== biomeName) { biomeName = name; biomeEl.textContent = name; }
 
   // camera
+  const speedNow = Math.hypot(car.vx, car.vz);
   camYaw += Math.atan2(Math.sin(car.yaw - camYaw), Math.cos(car.yaw - camYaw)) * Math.min(1, 4 * dt);
-  const spd = Math.abs(vf) / MAX;
+  const spd = clamp(speedNow / MAX, 0, 1);
   if (camMode === 2) { // hood (position depends on the chosen car)
     car3d.updateMatrixWorld();
     const p = new THREE.Vector3(0, hood[0], hood[1]).applyMatrix4(car3d.matrixWorld);
     camera.position.copy(p); camera.lookAt(p.x + nfx * 20, p.y + 0.3, p.z + nfz * 20);
   } else {
     const dist = camMode === 0 ? 11 + spd * 4 : 7, hgt = camMode === 0 ? 4.2 : 2.6;
+    const camRate = 9 + 6 * Math.min(speedNow / 111, 2); // follow faster when you go faster, so 400 mph doesn't leave the camera behind
     const target = new THREE.Vector3(car.x - Math.sin(camYaw) * dist, car.y + hgt, car.z - Math.cos(camYaw) * dist);
-    camPos.lerp(target, Math.min(1, 9 * dt)); camera.position.copy(camPos);
+    camPos.lerp(target, Math.min(1, camRate * dt)); camera.position.copy(camPos);
     camera.position.y = Math.max(camera.position.y, groundAt(camPos.x, camPos.z) + 1.5);
     camera.lookAt(car.x + nfx * 6, car.y + 1.4, car.z + nfz * 6);
   }
@@ -666,8 +732,8 @@ function update(dt) {
   sun.position.set(car.x - 900, 1100, car.z + 700);
   sunLight.position.set(car.x - 50, 80, car.z + 40); sunLight.target.position.set(car.x, 0, car.z);
 
-  const mph = Math.round(Math.abs(vf) * MPH);
-  speedEl.textContent = mph; fillEl.style.width = (mph / 250 * 100) + '%';
+  const mph = Math.round(speedNow * MPH);
+  speedEl.textContent = mph; fillEl.style.width = Math.min(100, mph / MAXMPH * 100) + '%';
 
   if (phase === 'play') drawMap();
 }

@@ -1,12 +1,13 @@
 (() => {
 const MPH = 2.23694, MAX = 250 / MPH; // top speed capped at 250 mph (in m/s)
+const G = 16; // gravity (m/s²). Lower = floatier, higher = heavier
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const sm = (a, b, x) => { x = clamp((x - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
 const hs = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
 
 // ---------- World shape: winding road, rolling hills ----------
 const roadX = z => Math.sin(z * 0.004) * 140 + Math.sin(z * 0.0113) * 45;
-const roadH = z => Math.sin(z * 0.0031) * 14 + Math.sin(z * 0.009) * 5;
+const roadH = z => Math.sin(z * 0.0031) * 14 + Math.sin(z * 0.009) * 5 + Math.sin(z * 0.045) * 1.1; // last term = bumps
 const hills = (x, z) =>
   Math.sin(x * 0.0057 + 1) * Math.sin(z * 0.0049) * 34 +
   Math.sin(x * 0.013 + z * 0.009) * 9 +
@@ -143,7 +144,7 @@ box(0.4, 0.18, 0.06, 0xfff6c0, 0.65, 0.7, 2.16, 0xfff0a0); box(0.4, 0.18, 0.06, 
 box(0.4, 0.16, 0.06, 0xff2020, 0.65, 0.72, -2.16, 0xaa0000); box(0.4, 0.16, 0.06, 0xff2020, -0.65, 0.72, -2.16, 0xaa0000);
 box(1.7, 0.08, 0.4, 0x151515, 0, 1.4, -2.0); // spoiler
 const wheels = [];
-[[-1, 1.3], [1, 1.3], [-1, -1.3], [1, -1.3]].forEach(([sx, z], i) => {
+[[-1, 1.3], [1, 1.3], [-1, -1.3], [1, -1.3]].forEach(([sx, z]) => {
   const pivot = new THREE.Group(); pivot.position.set(sx * 1.0, 0.38, z);
   const w = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 14), new THREE.MeshLambertMaterial({ color: 0x151515 }));
   w.rotation.z = Math.PI / 2; pivot.add(w); body.add(pivot); wheels.push({ pivot, w, front: z > 0 });
@@ -161,18 +162,19 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys[e.code] = false);
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
-const G = 16; // gravity (m/s²). Lower = floatier, higher = heavier
+
 // ---------- Car physics ----------
-const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, steer: 0, pitch: 0, roll: 0, y: 0 };
+const car = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, vy: 0, steer: 0, pitch: 0, roll: 0, y: 0, air: false };
 function resetCar() {
   car.x = roadX(car.z); car.yaw = Math.atan2(roadX(car.z + 1) - car.x, 1);
-  car.vx = car.vz = 0; car.steer = 0;
+  car.vx = car.vz = car.vy = 0; car.steer = 0; car.air = false;
+  car.y = height(car.x, car.z) + 0.05;
 }
 resetCar();
 
 let lastCx = 1e9, lastCz = 1e9, camYaw = 0, camPos = new THREE.Vector3(0, 10, -15), wheelRot = 0;
 const speedEl = document.getElementById('speed'), fillEl = document.getElementById('fill');
-const clock = new THREE.Clock(), up = new THREE.Vector3(0, 1, 0);
+const clock = new THREE.Clock();
 
 function update(dt) {
   const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw), rx = fz, rz = -fx;
@@ -181,27 +183,61 @@ function update(dt) {
   const steerIn = ((keys.KeyA || keys.ArrowLeft) ? 1 : 0) - ((keys.KeyD || keys.ArrowRight) ? 1 : 0);
   const offRoad = Math.abs(car.x - roadX(car.z)) > HW + 0.5;
 
-  if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(Math.max(vf, 0) / MAX, 3))) * dt;
-  if (brake) vf -= (vf > 1 ? 45 : 14) * dt;
-  if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 30 * dt);
-  vf -= vf * 0.012 * dt + Math.sign(vf) * 0.6 * dt;                 // drag + rolling resistance
-  if (offRoad) vf *= Math.exp(-0.4 * dt);                            // grass slows you down
-  vf = clamp(vf, -14, MAX);                                          // 250 mph speed limit
-  vl *= Math.exp(-(hb ? 1.5 : 7) * dt);                              // tyre grip
+  if (!car.air) {
+    // wheels on the ground: engine, brakes, grip
+    if (gas && vf >= -0.5) vf += (8 + 34 * (1 - Math.pow(Math.max(vf, 0) / MAX, 3))) * dt;
+    if (brake) vf -= (vf > 1 ? 45 : 14) * dt;
+    if (hb) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 30 * dt);
+    vf -= vf * 0.012 * dt + Math.sign(vf) * 0.6 * dt;
+    if (offRoad) vf *= Math.exp(-0.4 * dt);
+    vl *= Math.exp(-(hb ? 1.5 : 7) * dt);
+  } else {
+    // in the air: no engine, no grip, almost no drag
+    vf -= vf * 0.004 * dt;
+    vl *= Math.exp(-0.4 * dt);
+  }
+  vf = clamp(vf, -14, MAX); // 250 mph speed limit
 
   car.steer += (steerIn - car.steer) * Math.min(1, 7 * dt);
-  car.yaw += car.steer * clamp(Math.abs(vf) / 8, 0, 1) * Math.sign(vf) * (1.8 / (1 + Math.abs(vf) * 0.04)) * dt;
+  const authority = car.air ? 0.25 : 1;
+  car.yaw += car.steer * clamp(Math.abs(vf) / 8, 0, 1) * Math.sign(vf) * (1.8 / (1 + Math.abs(vf) * 0.04)) * authority * dt;
 
   const nfx = Math.sin(car.yaw), nfz = Math.cos(car.yaw);
   car.vx = nfx * vf + nfz * vl; car.vz = nfz * vf - nfx * vl;
   car.x += car.vx * dt; car.z += car.vz * dt;
 
-  // follow the ground, tilt with slope
-  const h = height(car.x, car.z), hF = height(car.x + nfx * 2, car.z + nfz * 2), hB = height(car.x - nfx * 2, car.z - nfz * 2);
+  // ---- vertical physics ----
+  const gY = height(car.x, car.z) + 0.05;
+  if (!car.air) {
+    // if the ground drops away faster than gravity pulls us down, we take off
+    const yFree = car.y + car.vy * dt - 0.5 * G * dt * dt;
+    if (yFree > gY + 0.001) {
+      car.air = true;
+      car.vy -= G * dt; car.y += car.vy * dt;
+    } else {
+      car.vy = clamp((gY - car.y) / dt, -80, 80); // inherit the slope's vertical speed
+      car.y = gY;
+    }
+  } else {
+    car.vy -= G * dt;
+    car.y += car.vy * dt;
+    if (car.y <= gY) { // landing
+      const hit = -car.vy;
+      vf *= 1 - clamp((hit - 10) / 100, 0, 0.25); // hard landings scrub speed
+      car.vx = nfx * vf + nfz * vl; car.vz = nfz * vf - nfx * vl;
+      car.y = gY; car.vy = 0; car.air = false;
+    }
+  }
+
+  // ---- tilt: follow the slope on the ground, follow the flight path in the air ----
+  const hF = height(car.x + nfx * 2, car.z + nfz * 2), hB = height(car.x - nfx * 2, car.z - nfz * 2);
   const hR = height(car.x + nfz * 1.5, car.z - nfx * 1.5), hL = height(car.x - nfz * 1.5, car.z + nfx * 1.5);
-  car.y = h + 0.05;
-  car.pitch += (Math.atan2(hB - hF, 4) - car.pitch) * Math.min(1, 10 * dt);
-  car.roll += (Math.atan2(hR - hL, 3) - car.roll) * Math.min(1, 10 * dt);
+  let targetPitch, targetRoll, rate;
+  if (car.air) { targetPitch = -Math.atan2(car.vy, Math.max(Math.abs(vf), 8)); targetRoll = 0; rate = 3; }
+  else { targetPitch = Math.atan2(hB - hF, 4); targetRoll = Math.atan2(hR - hL, 3); rate = 10; }
+  car.pitch += (targetPitch - car.pitch) * Math.min(1, rate * dt);
+  car.roll += (targetRoll - car.roll) * Math.min(1, rate * dt);
+
   car3d.position.set(car.x, car.y, car.z);
   car3d.rotation.set(car.pitch, car.yaw, car.roll, 'YXZ');
   body.rotation.z = -car.steer * Math.min(1, vf / MAX) * 0.06;
@@ -220,6 +256,7 @@ function update(dt) {
   camYaw += Math.atan2(Math.sin(car.yaw - camYaw), Math.cos(car.yaw - camYaw)) * Math.min(1, 4 * dt);
   const spd = Math.abs(vf) / MAX;
   if (camMode === 2) { // hood
+    car3d.updateMatrixWorld();
     const p = new THREE.Vector3(0, 1.45, 0.4).applyMatrix4(car3d.matrixWorld);
     camera.position.copy(p); camera.lookAt(p.x + nfx * 20, p.y + 0.3, p.z + nfz * 20);
   } else {

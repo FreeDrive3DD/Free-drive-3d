@@ -994,4 +994,43 @@ function update(dt) {
 
   // sun, sky dome and shadows follow the car
   sky.position.set(car.x, 0, car.z); clouds.position.set(car.x, 0, car.z);
-  sunMesh.position.set(car.x + sunDir.x * 1700, sunDir.y * 1700, car
+  sunMesh.position.set(car.x + sunDir.x * 1700, sunDir.y * 1700, car.z + sunDir.z * 1700);
+  glow.position.copy(sunMesh.position);
+  sunLight.position.set(car.x + sunDir.x * 250, car.y + sunDir.y * 250, car.z + sunDir.z * 250);
+  sunLight.target.position.set(car.x, car.y, car.z);
+
+  updateHud(speedNow);
+  if (playing && free) drawMap();
+}
+
+// ---------- falling snow (free roam, snowy biome) ----------
+const SN = 900, SR = 70, snowPos = new Float32Array(SN * 3);
+for (let i = 0; i < SN; i++) {
+  snowPos[i * 3] = (Math.random() * 2 - 1) * SR;
+  snowPos[i * 3 + 1] = Math.random() * 40;
+  snowPos[i * 3 + 2] = (Math.random() * 2 - 1) * SR;
+}
+const snowGeo = new THREE.BufferGeometry();
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0, depthWrite: false }));
+snow.frustumCulled = false; snow.visible = false; scene.add(snow);
+const wrap = (v, c, R) => ((v - c + R) % (2 * R) + 2 * R) % (2 * R) - R + c;
+
+// ---------- main loop ----------
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  update(phase === 'play' ? dt : 0.0001);
+  renderer.render(scene, camera);
+  if (phase === 'select') renderPreviews(performance.now() / 1000);
+});
+
+// ---------- boot: build the free-roam world behind the menus ----------
+applyTheme(THEMES.free);
+resetCar();
+rebuild(car.x, car.z);
+sizeMap();
+
+// also let a click or tap start the game
+$('start').addEventListener('click', () => { if (phase === 'title') { phase = 'modes'; show('modes'); } });
+window.focus();
+})();

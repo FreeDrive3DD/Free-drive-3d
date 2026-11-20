@@ -3,28 +3,85 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Free Drive 3D</title>
+  <title>Open Road</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="game"></div>
+  <div id="vignette"></div>
+  <div id="flash"></div>
 
-  <div id="hud">
+  <div id="hud" class="hidden">
+    <div id="topbar">
+      <div id="timer"></div>
+      <div id="sub"></div>
+    </div>
+    <div id="raceBar"><div id="raceTrack"></div></div>
+    <div id="biome"></div>
+    <div id="vanTag">VAN</div>
+    <div id="bigText"></div>
+    <div id="hint"></div>
     <div id="speedo">
       <div id="speed">0</div>
       <div id="unit">mph</div>
       <div id="bar"><div id="fill"></div></div>
       <div id="limit">Limit 250 mph</div>
     </div>
-    <div id="hint">C camera &nbsp; R reset &nbsp; Space handbrake</div>
+    <canvas id="map"></canvas>
   </div>
 
-  <div id="start">
+  <section class="screen" id="start">
     <h1>Open Road</h1>
-    <p>Drive anywhere. The road never ends, and neither do the hills.</p>
-    <p class="keys">W / Up accelerate &nbsp; S / Down brake &nbsp; A D / Left Right steer</p>
-    <p class="go">Press any key to drive</p>
-  </div>
+    <p>Drive anywhere, race a mile, or chase down a getaway van.</p>
+    <p class="keys">W / Up accelerate &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake</p>
+    <p class="go">Press any key to start</p>
+  </section>
+
+  <section class="screen hidden" id="modes">
+    <h2>Choose a mode</h2>
+    <div class="row">
+      <article class="card mode" data-mode="free">
+        <div class="art art-free"></div>
+        <h3>Free roam</h3>
+        <p>Hills, snow and lakes with no rules. Top speed depends on the car.</p>
+        <button type="button">Play</button>
+      </article>
+      <article class="card mode" data-mode="race">
+        <div class="art art-race"></div>
+        <h3>Race</h3>
+        <p>One straight mile and three rivals. First to the line wins. Everyone is capped at 250 mph.</p>
+        <button type="button">Play</button>
+      </article>
+      <article class="card mode" data-mode="heist">
+        <div class="art art-heist"></div>
+        <h3>Heist</h3>
+        <p>Chase a black van down a busy motorway. Hit it within 3 minutes. Capped at 250 mph.</p>
+        <button type="button">Play</button>
+      </article>
+    </div>
+  </section>
+
+  <section class="screen hidden" id="pick">
+    <h2>Choose your car</h2>
+    <div class="row">
+      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 1"></canvas><button type="button" aria-label="Pick car 1">Pick</button></div>
+      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 2"></canvas><button type="button" aria-label="Pick car 2">Pick</button></div>
+      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 3"></canvas><button type="button" aria-label="Pick car 3">Pick</button></div>
+    </div>
+    <button type="button" class="ghost" id="backToModes">Back</button>
+  </section>
+
+  <section class="screen hidden" id="result">
+    <div class="panel">
+      <h2 id="resTitle"></h2>
+      <p id="resText"></p>
+      <ol id="resList"></ol>
+      <div class="actions">
+        <button type="button" id="again">Play again</button>
+        <button type="button" class="ghost" id="changeMode">Change mode</button>
+      </div>
+    </div>
+  </section>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="game.js"></script>

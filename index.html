@@ -21,6 +21,7 @@
     <div id="vanTag">VAN</div>
     <div id="bigText"></div>
     <div id="hint"></div>
+    <button type="button" id="backBtn" tabindex="-1">Back</button>
     <div id="speedo">
       <div id="speed">0</div>
       <div id="unit">mph</div>
@@ -34,7 +35,7 @@
     <h1>Open Road</h1>
     <p>Drive anywhere, race a mile, or chase down a getaway van.</p>
     <p class="keys">W / Up accelerate &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake</p>
-    <p class="go">Press any key to start</p>
+    <p class="go">Press any key or click to start</p>
   </section>
 
   <section class="screen hidden" id="modes">
@@ -63,6 +64,7 @@
 
   <section class="screen hidden" id="pick">
     <h2>Choose your car</h2>
+    <div class="swatches" id="swatches" role="group" aria-label="Car colour"></div>
     <div class="row">
       <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 1"></canvas><button type="button" aria-label="Pick car 1">Pick</button></div>
       <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 2"></canvas><button type="button" aria-label="Pick car 2">Pick</button></div>

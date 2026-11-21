@@ -37,6 +37,7 @@
     <p class="keys">W / Up accelerate &nbsp; S / Down brake &nbsp; A D / Left Right steer &nbsp; Space handbrake</p>
     <p class="go">Press any key or click to start</p>
   </section>
+
   <section class="screen hidden" id="modes">
     <h2>Choose a mode</h2>
     <div class="row">
@@ -64,11 +65,7 @@
   <section class="screen hidden" id="pick">
     <h2>Choose your car</h2>
     <div class="swatches" id="swatches" role="group" aria-label="Car colour"></div>
-    <div class="row">
-      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 1"></canvas><button type="button" aria-label="Pick car 1">Pick</button></div>
-      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 2"></canvas><button type="button" aria-label="Pick car 2">Pick</button></div>
-      <div class="card car"><canvas width="440" height="280" role="img" aria-label="Car option 3"></canvas><button type="button" aria-label="Pick car 3">Pick</button></div>
-    </div>
+    <div class="row" id="carRow"></div>
     <button type="button" class="ghost" id="backToModes">Back</button>
   </section>
 

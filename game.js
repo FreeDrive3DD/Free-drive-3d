@@ -1177,5 +1177,3 @@ sizeMap();
 setPaint(0); // starts on red; click a colour on the car screen to change it
 window.focus();
 })();
-  }
-}

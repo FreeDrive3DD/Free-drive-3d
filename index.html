@@ -7,6 +7,22 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="dbg" style="position:fixed;left:0;right:0;bottom:0;z-index:99999;padding:10px 14px;background:#111;color:#fff;font:14px/1.4 monospace;white-space:pre-wrap"></div>
+<script>
+  var dbg = document.getElementById('dbg');
+  function say(t) { dbg.textContent += t + '\n'; }
+  window.addEventListener('error', function (e) {
+    var t = e.target || {};
+    say('ERROR: ' + (e.message || ('could not load ' + (t.src || t.href))) + (e.lineno ? '  (line ' + e.lineno + ')' : ''));
+  }, true);
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var cars = document.getElementById('carRow').children.length;
+      say(cars === 6 ? 'OK: game.js started (6 cars built)' : 'PROBLEM: game.js did not finish starting (cars built: ' + cars + ')');
+      say(typeof THREE === 'undefined' ? 'PROBLEM: Three.js did not load (check internet)' : 'OK: Three.js loaded');
+    }, 1500);
+  });
+</script>
   <div id="game"></div>
   <div id="vignette"></div>
   <div id="flash"></div>

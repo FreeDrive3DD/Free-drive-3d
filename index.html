@@ -7,43 +7,6 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <script>
-window.addEventListener('load', function () {
-  var box = document.createElement('div');
-  box.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;padding:8px 12px;background:#4a1010;color:#fff;font:12px/1.35 monospace;white-space:pre-wrap';
-  document.body.appendChild(box);
-  fetch('game.js?v=' + Date.now()).then(function (r) { return r.text(); }).then(function (t) {
-    var L = t.split('\n'), depth = 0, first = 0, out = [];
-    L.forEach(function (line, i) {
-      var s = line.replace(/\/\/.*$/, '');
-      for (var k = 0; k < s.length; k++) {
-        if (s[k] === '{') depth++;
-        else if (s[k] === '}') { depth--; if (depth === 0 && !first) first = i + 1; }
-      }
-    });
-    out.push('File has ' + L.length + ' lines. Code first closes at line ' + first + '.');
-    for (var n = 652; n <= 657; n++) out.push(n + ': ' + (L[n - 1] || '').slice(0, 80));
-    out.push('Ends with: ' + t.trim().slice(-30));
-    box.textContent = out.join('\n');
-  }).catch(function (e) { box.textContent = 'Could not read game.js: ' + e; });
-});
-</script>
-  <div id="dbg" style="position:fixed;left:0;right:0;bottom:0;z-index:99999;padding:10px 14px;background:#111;color:#fff;font:14px/1.4 monospace;white-space:pre-wrap"></div>
-<script>
-  var dbg = document.getElementById('dbg');
-  function say(t) { dbg.textContent += t + '\n'; }
-  window.addEventListener('error', function (e) {
-    var t = e.target || {};
-    say('ERROR: ' + (e.message || ('could not load ' + (t.src || t.href))) + (e.lineno ? '  (line ' + e.lineno + ')' : ''));
-  }, true);
-  window.addEventListener('load', function () {
-    setTimeout(function () {
-      var cars = document.getElementById('carRow').children.length;
-      say(cars === 6 ? 'OK: game.js started (6 cars built)' : 'PROBLEM: game.js did not finish starting (cars built: ' + cars + ')');
-      say(typeof THREE === 'undefined' ? 'PROBLEM: Three.js did not load (check internet)' : 'OK: Three.js loaded');
-    }, 1500);
-  });
-</script>
   <div id="game"></div>
   <div id="vignette"></div>
   <div id="flash"></div>

@@ -648,7 +648,6 @@ function updateHeist(dt) {
       const left = timeLeft;
       finish(() => showResult('Got him!', 'You rammed the van with ' + fmt(left) + ' left on the clock.', [], 'Play again'), 1.6);
     }
-    }
   }
 }
 // ---------- the three new cars ----------

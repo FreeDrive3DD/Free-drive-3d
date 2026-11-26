@@ -651,8 +651,3 @@ function updateHeist(dt) {
   }
 }
 
-// ===== END OF PART 1 =====
-// Part 2 must be pasted directly below this line.
-// If the file you see on GitHub ends with this comment, Part 1 is complete.
-//
-//

@@ -62,6 +62,20 @@
     </div>
   </section>
 
+  <section class="screen hidden" id="name">
+    <h2>Choose your name</h2>
+    <p>Letters and numbers only, 3 to 12 characters. Everyone online will see it.</p>
+    <form id="nameForm" autocomplete="off">
+      <input id="nameInput" type="text" maxlength="12" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Your name" aria-label="Your name">
+      <button type="submit" id="nameGo">Continue</button>
+    </form>
+    <p id="nameMsg" role="status" aria-live="polite"></p>
+    <div class="actions">
+      <button type="button" class="ghost" id="nameSkip">Play offline</button>
+      <button type="button" class="ghost" id="nameBack">Back</button>
+    </div>
+  </section>
+
   <section class="screen hidden" id="pick">
     <h2>Choose your car</h2>
     <div class="swatches" id="swatches" role="group" aria-label="Car colour"></div>
@@ -82,6 +96,7 @@
   </section>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="online.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
